@@ -1,0 +1,3 @@
+smolagents
+pip install "smolagents[toolkit]"
+pip install "smolagents[mcp]"
