@@ -1,3 +1,10 @@
-smolagents
-pip install "smolagents[toolkit]"
-pip install "smolagents[mcp]"
+# Core smolagents installation
+smolagents==1.23.0
+
+# Optional extras - install with specific features
+smolagents[toolkit]==1.23.0
+smolagents[mcp]==1.23.0
+smolagents[docker]==1.23.0
+smolagents[telemetry]==1.23.0
+smolagents[gradio]==1.23.0
+smolagents[litellm]==1.23.0

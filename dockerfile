@@ -5,13 +5,18 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         build-essential \
         python3-dev && \
-    pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir smolagents && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
+
+# Copy requirements file
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Run with limited privileges
 USER nobody

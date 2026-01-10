@@ -35,6 +35,7 @@ class DockerSandbox:
             pids_limit=100,
             security_opt=["no-new-privileges"],
             cap_drop=["ALL"],
+            network_mode="host",  # Use host network to access Ollama
             environment={
                 "HF_TOKEN": os.getenv("HF_TOKEN")
             },
@@ -65,30 +66,3 @@ class DockerSandbox:
                 print(f"Error during cleanup: {e}")
             finally:
                 self.container = None  # Clear the reference
-
-# Example usage:
-sandbox = DockerSandbox()
-
-try:
-    # Define your agent code
-    agent_code = """
-import os
-from smolagents import CodeAgent, InferenceClientModel
-
-# Initialize the agent
-agent = CodeAgent(
-    model=InferenceClientModel(token=os.getenv("HF_TOKEN"), provider="together"),
-    tools=[]
-)
-
-# Run the agent
-response = agent.run("What's the 20th Fibonacci number?")
-print(response)
-"""
-
-    # Run the code in the sandbox
-    output = sandbox.run_code(agent_code)
-    print(output)
-
-finally:
-    sandbox.cleanup()
