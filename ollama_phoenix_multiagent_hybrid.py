@@ -6,7 +6,7 @@ Architecture:
         ├── RAG Agent (searches HuggingFace docs)
         ├── Web Search Agent (searches internet)
         └── Planner Agent (creates execution plans)
-    
+
     HOST: All agents, planning, retrieval, LLM inference
     SANDBOX: Code execution only
 
@@ -22,10 +22,10 @@ This implements:
 Usage:
     # Start Phoenix:
     docker-compose up -d
-    
+
     # Run on host:
     python ollama_phoenix_multiagent_hybrid.py
-    
+
     # View traces:
     http://localhost:6006/projects/
 """
@@ -35,6 +35,7 @@ from smolagents import (
     ToolCallingAgent,
     LiteLLMModel,
     PlanningStep,
+    ActionStep,
     Tool,
     tool,
     DuckDuckGoSearchTool,
@@ -149,6 +150,67 @@ def interrupt_after_plan(memory_step, agent):
 
 
 # ============================================================================
+# Step Hierarchy Tracker (for better logging)
+# ============================================================================
+
+class StepTracker:
+    """Tracks step hierarchy and provides formatted labels"""
+    
+    def __init__(self):
+        self.step_counter = 0
+        self.current_agent = None
+        self.agent_step_counters = {}
+    
+    def format_step(self, memory_step, agent):
+        """Format a step with hierarchical labels"""
+        self.step_counter += 1
+        
+        # Detect which agent is executing
+        agent_name = getattr(agent, 'name', 'manager')
+        
+        # Track per-agent step counter
+        if agent_name not in self.agent_step_counters:
+            self.agent_step_counters[agent_name] = 0
+        self.agent_step_counters[agent_name] += 1
+        
+        agent_step = self.agent_step_counters[agent_name]
+        
+        # Format based on step type
+        if isinstance(memory_step, PlanningStep):
+            print(f"\n{'='*70}")
+            print(f"📋 PLANNING STEP #{self.step_counter}")
+            print(f"{'='*70}")
+            
+        elif isinstance(memory_step, ActionStep):
+            # Determine action type
+            if hasattr(memory_step, 'tool_calls') and memory_step.tool_calls:
+                tool_call = memory_step.tool_calls[0]
+                if hasattr(tool_call, 'name'):
+                    action_name = tool_call.name
+                else:
+                    action_name = "unknown"
+            else:
+                action_name = "unknown"
+            
+            # Check if this is a managed agent call
+            if any(name in action_name for name in ['rag_agent', 'web_search_agent', 'code_agent']):
+                print(f"\n{'─'*70}")
+                print(f"🤖 DELEGATING TO: {action_name.upper()} (Step {self.step_counter})")
+                print(f"{'─'*70}")
+            else:
+                print(f"\n⚡ Action #{self.step_counter} [{agent_name}]: {action_name}")
+
+
+# Create global step tracker
+step_tracker = StepTracker()
+
+
+def log_step_hierarchy(memory_step, agent):
+    """Callback to log steps with proper hierarchy"""
+    step_tracker.format_step(memory_step, agent)
+
+
+# ============================================================================
 # RAG Components (runs on HOST)
 # ============================================================================
 
@@ -180,7 +242,7 @@ class RetrieverTool(Tool):
         assert isinstance(query, str), "Your search query must be a string"
 
         print(f"\n🔍 [RAG] Retrieving documents for: '{query[:80]}...'")
-        
+
         # Retrieve relevant documents
         docs = self.retriever.invoke(query)
 
@@ -191,7 +253,7 @@ class RetrieverTool(Tool):
                 for i, doc in enumerate(docs)
             ]
         )
-        
+
         print(f"✓ [RAG] Retrieved {len(docs)} documents")
         return result
 
@@ -199,16 +261,16 @@ class RetrieverTool(Tool):
 def prepare_knowledge_base():
     """Prepare the knowledge base from HuggingFace documentation."""
     print("\n📚 Preparing RAG knowledge base...")
-    
+
     print("  Loading HuggingFace documentation dataset...")
     knowledge_base = datasets.load_dataset("m-ric/huggingface_doc", split="train")
-    
+
     print("  Filtering for Transformers docs...")
     knowledge_base = knowledge_base.filter(
         lambda row: row["source"].startswith("huggingface/transformers")
     )
     print(f"  ✓ Found {len(knowledge_base)} documents")
-    
+
     print("  Converting to Document objects...")
     source_docs = [
         Document(
@@ -217,7 +279,7 @@ def prepare_knowledge_base():
         )
         for doc in knowledge_base
     ]
-    
+
     print("  Splitting documents into chunks...")
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=500,
@@ -227,7 +289,7 @@ def prepare_knowledge_base():
         separators=["\n\n", "\n", ".", " ", ""],
     )
     docs_processed = text_splitter.split_documents(source_docs)
-    
+
     print(f"✓ Knowledge base prepared with {len(docs_processed)} document chunks")
     return docs_processed
 
@@ -249,7 +311,7 @@ def visit_webpage(url: str) -> str:
     """
     try:
         print(f"\n🌐 [WEB] Visiting webpage: {url}")
-        
+
         # Send a GET request to the URL
         response = requests.get(url, timeout=10)
         response.raise_for_status()
@@ -259,12 +321,12 @@ def visit_webpage(url: str) -> str:
 
         # Remove multiple line breaks
         markdown_content = re.sub(r"\n{3,}", "\n\n", markdown_content)
-        
+
         # Limit content length to avoid overwhelming the context
         max_length = 5000
         if len(markdown_content) > max_length:
             markdown_content = markdown_content[:max_length] + "\n\n[Content truncated...]"
-        
+
         print(f"✓ [WEB] Retrieved {len(markdown_content)} characters")
         return markdown_content
 
@@ -274,54 +336,7 @@ def visit_webpage(url: str) -> str:
         return f"An unexpected error occurred: {str(e)}"
 
 
-# ============================================================================
-# Planner Tool (runs on HOST)
-# ============================================================================
 
-@tool
-def create_task_plan(task_description: str) -> str:
-    """
-    Creates a detailed step-by-step plan for accomplishing a complex task.
-    Breaks down the task into logical subtasks with dependencies.
-
-    Args:
-        task_description: Description of the task to plan
-
-    Returns:
-        A structured plan with numbered steps
-    """
-    print(f"\n📋 [PLANNER] Creating plan for: '{task_description[:80]}...'")
-    
-    # This is a simple planning heuristic
-    # In a real system, you might use another LLM call here
-    plan = f"""
-TASK PLAN for: {task_description}
-
-Step 1: Analyze the task requirements
-   - Identify key questions to answer
-   - Determine what information sources are needed
-
-Step 2: Gather information
-   - Use RAG retriever for documentation-related queries
-   - Use web search for current/general information
-   
-Step 3: Process and synthesize information
-   - Analyze retrieved information
-   - Extract relevant facts and examples
-   - Identify any gaps in knowledge
-
-Step 4: Execute any required computations
-   - Write and run code if calculations are needed
-   - Generate examples or demonstrations
-
-Step 5: Compile final answer
-   - Synthesize all gathered information
-   - Provide clear, structured response
-   - Include sources and citations
-"""
-    
-    print("✓ [PLANNER] Plan created")
-    return plan
 
 
 # ============================================================================
@@ -330,33 +345,33 @@ Step 5: Compile final answer
 
 class SandboxedPythonExecutor:
     """Custom executor that runs Python code in isolated Docker sandbox."""
-    
+
     def __init__(self):
         self.sandbox = None
         self.execution_count = 0
-    
+
     def execute(self, code: str) -> str:
         """Execute Python code in a fresh sandbox container."""
         self.execution_count += 1
         print(f"\n🔒 [SANDBOX] Executing code (execution #{self.execution_count})...")
-        
+
         self.sandbox = DockerSandbox(enable_phoenix=True)
-        
+
         try:
             result = self.sandbox.run_code(code)
             print("✓ [SANDBOX] Execution completed")
             return result if result else ""
-            
+
         except Exception as e:
             error_msg = f"Sandbox execution failed: {str(e)}"
             print(f"❌ [SANDBOX] {error_msg}")
             return error_msg
-            
+
         finally:
             if self.sandbox:
                 self.sandbox.cleanup()
                 self.sandbox = None
-    
+
     def __del__(self):
         if self.sandbox:
             self.sandbox.cleanup()
@@ -371,19 +386,19 @@ def main():
     print("🚀 MULTI-AGENT ORCHESTRATION SYSTEM")
     print("=" * 70)
     print("\nAgents:")
-    print("  🤖 Manager Agent - Orchestrates other agents")
+    print("  🎯 Manager/Planner Agent - Plans tasks and orchestrates specialized agents")
     print("  📚 RAG Agent - Searches HuggingFace documentation")
     print("  🌐 Web Search Agent - Searches the internet")
-    print("  📋 Planner Agent - Creates task execution plans")
+    print("  💻 Code Agent - Writes and executes code (sandboxed)")
     print("=" * 70)
-    
+
     # Setup Phoenix telemetry
     setup_phoenix_host()
-    
+
     # Prepare RAG knowledge base
     docs_processed = prepare_knowledge_base()
     retriever_tool = RetrieverTool(docs_processed)
-    
+
     # Create shared LLM model
     print("\n🧠 Initializing LLM model (host-side)...")
     model = LiteLLMModel(
@@ -392,12 +407,12 @@ def main():
         api_key="",
         num_ctx=8192,
     )
-    
+
     # Create sandboxed executor
     executor = SandboxedPythonExecutor()
-    
+
     print("\n🔧 Creating specialized agents...")
-    
+
     # ========================================================================
     # RAG Agent - Searches documentation
     # ========================================================================
@@ -409,7 +424,7 @@ def main():
         description="Searches HuggingFace Transformers documentation to answer questions about models, training, APIs, and library usage.",
     )
     print("  ✓ RAG Agent created")
-    
+
     # ========================================================================
     # Web Search Agent - Searches internet and visits pages
     # ========================================================================
@@ -421,65 +436,141 @@ def main():
         description="Searches the internet and visits web pages to find current information, news, and general knowledge.",
     )
     print("  ✓ Web Search Agent created")
-    
+
     # ========================================================================
-    # Planner Agent - Creates execution plans
+    # Code Agent - Writes and executes code in sandbox with error recovery
     # ========================================================================
-    planner_agent = ToolCallingAgent(
-        tools=[create_task_plan],
+
+    # Create sandboxed Python tool for the code agent with detailed error reporting
+    @tool
+    def python_interpreter_sandboxed(code: str) -> str:
+        """
+        Executes Python code in an isolated Docker sandbox and returns the output.
+        Use this for running any Python code, calculations, data processing, or demonstrations.
+
+        If execution fails, the error message will include:
+        - The error type and message
+        - The line number where the error occurred
+        - Suggestions for fixing the error
+
+        You should analyze any errors and retry with corrected code.
+
+        Args:
+            code: Python code to execute
+
+        Returns:
+            Output from the code execution, or detailed error information if it fails
+        """
+        result = executor.execute(code)
+
+        # Check if result contains an error
+        if result and ("Traceback" in result or "Error" in result or "Exception" in result):
+            # Add helpful context to errors
+            error_context = f"\n{'='*60}\n⚠️  CODE EXECUTION FAILED\n{'='*60}\n{result}\n{'='*60}\n"
+            error_context += "\n💡 DEBUGGING SUGGESTIONS:\n"
+            error_context += "1. Check the error type and line number above\n"
+            error_context += "2. Verify all imports are available in the sandbox\n"
+            error_context += "3. Check for syntax errors or typos\n"
+            error_context += "4. Ensure variable names are correct\n"
+            error_context += "5. Try running a simpler version first to isolate the issue\n"
+            error_context += "\n🔄 You can retry with corrected code.\n"
+            error_context += "="*60 + "\n"
+            return error_context
+
+        return result
+
+    code_agent = CodeAgent(
+        tools=[python_interpreter_sandboxed],
         model=model,
-        max_steps=3,
-        name="planner_agent",
-        description="Creates detailed step-by-step plans for complex tasks. Use this to break down complicated requests into manageable steps.",
+        max_steps=15,  # Increased to allow for debugging iterations
+        additional_authorized_imports=["time", "numpy", "pandas", "json", "requests"],
+        name="code_agent",
+        description=(
+            "Writes and executes Python code to perform calculations, data processing, create examples, "
+            "or demonstrate concepts. All code runs in an isolated sandbox. "
+            "If code fails, analyzes errors and retries with fixes. Can iterate up to multiple times to debug issues."
+        ),
     )
-    print("  ✓ Planner Agent created")
-    
+    print("  ✓ Code Agent created (with error recovery)")
+
     # ========================================================================
-    # Manager Agent - Orchestrates everything
+    # Manager/Planner Agent - Orchestrates everything with planning
     # ========================================================================
-    print("\n🎯 Creating manager agent...")
+    print("\n🎯 Creating manager/planner agent...")
+
+    # Custom system prompt to make plans more concise
+    planning_prompt = """You are a manager agent that coordinates specialized agents to accomplish tasks.
+
+When creating plans:
+- Keep plans SHORT and ACTION-ORIENTED
+- Focus on WHAT to do, not extensive analysis
+- Each step should be a clear action like "Search docs for X" or "Write code to Y"
+- Avoid lengthy explanations, facts surveys, or philosophical discussions
+- Plans should fit in one screen
+
+Example GOOD plan:
+```
+1. Use rag_agent to find fine-tuning docs
+2. Use web_search_agent for 2025 sentiment analysis best practices
+3. Use code_agent to write example code
+4. Synthesize findings into answer with citations
+```
+
+Example BAD plan (too verbose):
+```
+## Facts Survey
+### Facts given in task...
+### Facts we learned...
+[pages of analysis]
+```
+
+Keep it simple and actionable."""
+
     manager_agent = CodeAgent(
         tools=[],  # No direct tools, uses managed agents
         model=model,
-        managed_agents=[rag_agent, web_search_agent, planner_agent],
+        managed_agents=[rag_agent, web_search_agent, code_agent],
         additional_authorized_imports=["time", "numpy", "pandas", "json"],
-        planning_interval=3,
-        step_callbacks={PlanningStep: interrupt_after_plan},
+        planning_interval=5,  # Creates plans every 5 steps (less frequent = simpler plans)
+        step_callbacks={
+            PlanningStep: interrupt_after_plan,  # User approval workflow
+            ActionStep: log_step_hierarchy,      # Hierarchical step logging
+        },
         max_steps=15,
         verbosity_level=2,
-        name="manager_agent",
-        description="Orchestrates multiple specialized agents to accomplish complex tasks",
+        name="manager_planner_agent",
+        description="Plans complex tasks, breaks them into steps, and orchestrates specialized agents (RAG, web search, code execution) to execute them",
+        instructions=planning_prompt,  # Custom instructions for concise planning
     )
-    print("  ✓ Manager Agent created")
-    
+    print("  ✓ Manager/Planner Agent created")
+
     # Define a complex task that requires multiple agents
     task = """
     I want to fine-tune a transformer model for sentiment analysis. Please help me by:
     1. Finding information in the HuggingFace docs about how to fine-tune models
-    2. Searching the web for recent best practices in sentiment analysis (2024-2025)
-    3. Creating a step-by-step plan for the fine-tuning process
-    4. Providing a code example that demonstrates the key steps
-    
+    2. Searching the web for recent best practices in sentiment analysis (2025)
+    3. Providing a code example that demonstrates the key steps
+
     Please cite your sources for both documentation and web searches.
     """
-    
+
     print("\n" + "=" * 70)
     print("📋 COMPLEX TASK:")
     print(task)
     print("=" * 70)
-    
+
     try:
         print("\n🎯 Starting multi-agent execution...")
-        print("   - Manager orchestrates specialized agents")
+        print("   - Manager creates plans and orchestrates specialized agents")
+        print("   - User approves/modifies plans before execution")
         print("   - RAG agent searches documentation")
         print("   - Web search agent finds current info")
-        print("   - Planner agent creates structured plans")
-        print("   - Code execution happens in sandbox")
+        print("   - Code agent writes and executes code in sandbox")
         print()
-        
+
         # Run the manager agent
         result = manager_agent.run(task)
-        
+
         print("\n" + "=" * 70)
         print("✅ TASK COMPLETED SUCCESSFULLY")
         print("=" * 70)
@@ -487,14 +578,14 @@ def main():
         print("-" * 70)
         print(result)
         print("-" * 70)
-        
+
         print(f"\n📊 Statistics:")
         print(f"   - Sandboxed executions: {executor.execution_count}")
-        
+
     except KeyboardInterrupt:
         print("\n\n⚠️  Interrupted by user")
         sys.exit(0)
-        
+
     except Exception as e:
         error_msg = str(e)
         if "interrupted" in error_msg.lower():
@@ -504,20 +595,21 @@ def main():
         else:
             print(f"\n❌ Error occurred: {e}")
             raise
-    
+
     finally:
         if executor.sandbox:
             print("\n🧹 Cleaning up sandbox...")
             executor.sandbox.cleanup()
-    
+
     print("\n" + "=" * 70)
     print("📊 View detailed traces at: http://localhost:6006/projects/")
     print("\nTrace shows:")
-    print("  ✓ Manager agent orchestration")
+    print("  ✓ Manager/Planner creating and refining plans")
+    print("  ✓ User plan approval decisions")
     print("  ✓ RAG agent documentation searches")
     print("  ✓ Web search agent queries and page visits")
-    print("  ✓ Planner agent task decomposition")
-    print("  ✓ Inter-agent communication")
+    print("  ✓ Code agent writing and executing code")
+    print("  ✓ Inter-agent communication and delegation")
     print("  ✓ Sandboxed code executions")
     print("  ✓ Complete multi-agent workflow")
     print("=" * 70)
