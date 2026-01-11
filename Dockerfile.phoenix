@@ -1,0 +1,8 @@
+FROM arizephoenix/phoenix:latest
+
+# Install curl for healthcheck
+USER root
+RUN apk add --no-cache curl
+
+# Switch back to default user
+USER phoenix

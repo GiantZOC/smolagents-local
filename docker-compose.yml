@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # Phoenix server - collects and displays telemetry
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    ports:
+      - "6006:6006"  # Phoenix UI
+      - "4317:4317"  # OTLP gRPC endpoint
+      - "4318:4318"  # OTLP HTTP endpoint
+    environment:
+      - PHOENIX_WORKING_DIR=/phoenix-data
+    volumes:
+      - phoenix-data:/phoenix-data
+    networks:
+      - smolagents-network
+
+  # Agent sandbox - runs smolagents with Phoenix instrumentation
+  agent-sandbox:
+    build:
+      context: .
+      dockerfile: dockerfile
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://phoenix:4317
+      - PHOENIX_COLLECTOR_ENDPOINT=http://phoenix:6006
+      - PHOENIX_WORKING_DIR=/tmp/phoenix
+    networks:
+      - smolagents-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # For accessing Ollama on host (Linux compatibility)
+    depends_on:
+      - phoenix
+    mem_limit: 512m
+    cpu_quota: 50000
+    pids_limit: 100
+    security_opt:
+      - no-new-privileges
+    cap_drop:
+      - ALL
+    stdin_open: true
+    tty: true
+    command: tail -f /dev/null  # Keep container running
+
+# Network that sandbox containers will join
+networks:
+  smolagents-network:
+    driver: bridge
+
+volumes:
+  phoenix-data:

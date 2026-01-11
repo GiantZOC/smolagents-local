@@ -8,3 +8,7 @@ smolagents[docker]==1.23.0
 smolagents[telemetry]==1.23.0
 smolagents[gradio]==1.23.0
 smolagents[litellm]==1.23.0
+
+# Phoenix telemetry integration
+arize-phoenix
+openinference-instrumentation-smolagents
