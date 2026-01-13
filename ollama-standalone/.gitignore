@@ -1,0 +1,24 @@
+# Environment files
+.env
+
+# Logs
+logs/
+*.log
+
+# Backups
+backups/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+tmp/
+temp/
