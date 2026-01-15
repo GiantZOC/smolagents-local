@@ -2058,43 +2058,6 @@ build-backend = "setuptools.build_meta"
 
 ---
 
-## Summary of All Fixes Applied
-
-### ✅ Critical Fixes (Blockers)
-1. **InstrumentedTool metadata mutation** → Fixed with `object.__setattr__` + `copy.deepcopy`
-2. **Truncation flag misleading** → Fixed with `(text, bool)` return tuples
-3. **Phoenix global provider missing** → Fixed with `trace.set_tracer_provider()`
-4. **propose_patch fights truncation** → Fixed with `propose_patch_unified` tool
-
-### ✅ High Priority Fixes
-5. **CommandPolicy** → Added ALLOW/REQUIRE_APPROVAL/DENY enforcement
-6. **System prompts too verbose** → Made ultra-minimal Qwen-style the default
-7. **Instrumentation duplication** → Fixed with `tool_wrapped.<name>` span naming
-8. **Git tools missing** → Added `git_status`, `git_diff`, `git_log`
-
-### ✅ Quality Improvements
-9. **State.max_steps** → Made configurable
-10. **ApprovalStore** → Added command approval tracking
-11. **Format guard** → Added callback structure (commented pending smolagents support)
-12. **Span attributes** → Added `approval.requested_by` tracking
-
----
-
-## What Changed
-
-| Component | Before | After |
-|-----------|--------|-------|
-| InstrumentedTool | Metadata mutation bug | Fixed with object.__setattr__ |
-| truncate_output() | Returns string | Returns (str, bool) tuple |
-| Phoenix setup | Missing global provider | Calls set_tracer_provider() |
-| Patch tools | Only propose_patch | Added propose_patch_unified |
-| Command policy | Generic validation | ALLOW/APPROVE/DENY tiers |
-| System prompts | Verbose instructions | Ultra-minimal Qwen-style |
-| Tools count | 10 tools | 14 tools (added git + unified) |
-| Span naming | tool.<name> | tool_wrapped.<name> |
-
----
-
 ## Production Readiness
 
 This plan is now **production-ready** for low-power LLMs:

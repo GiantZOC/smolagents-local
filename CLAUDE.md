@@ -19,6 +19,24 @@ Build a production-ready coding agent using smolagents primitives, optimized for
 - **Docker** (sandbox for patch validation)
 - Python 3.10+
 
+## Configuration Management
+
+All hardcoded settings have been replaced with environment variables using `agent_runtime/config.py`:
+
+- **Configuration file**: `smol_instruments/.env` (copy from `.env.example`)
+- **Config module**: `agent_runtime.config.Config` provides all settings
+- **Auto-loading**: Config loads `.env` on import
+- **Settings available**:
+  - Model: `MODEL_ID`, `MODEL_API_BASE`, `MODEL_TEMPERATURE`, `MODEL_MAX_TOKENS`
+  - Agent: `AGENT_MAX_STEPS`
+  - Phoenix: `PHOENIX_ENABLED`, `PHOENIX_ENDPOINT`
+  - Validation: `VALIDATION_MAX_CHARS`, `VALIDATION_MAX_LINES`, `VALIDATION_MAX_LINE_RANGE`
+  - Truncation: `TRUNCATION_MAX_CHARS`, `TRUNCATION_MAX_LINES`, `TRUNCATION_MAX_LIST_ITEMS`
+  - Sandbox: `SANDBOX_IMAGE`, `SANDBOX_TIMEOUT`
+  - Logging: `LOG_LEVEL`, `SUPPRESS_WARNINGS`
+
+**Usage**: All modules import `Config` and use `Config.SETTING_NAME` instead of hardcoded values.
+
 ## Implementation Order
 
 **DO NOT start coding until you understand this sequence:**
