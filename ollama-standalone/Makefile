@@ -4,6 +4,7 @@
 .PHONY: help setup start stop restart logs health install-models list-models clean clean-all shell build
 
 # Default models to install
+# qwen2.5-coder:14b-instruct-q8_0
 DEFAULT_MODELS := llama3.2:3b nomic-embed-text:latest
 
 # Colors for output

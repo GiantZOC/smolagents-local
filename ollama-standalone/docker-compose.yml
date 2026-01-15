@@ -39,33 +39,33 @@ services:
       - ollama-net
 
   # Optional: Redis for caching (comment out if not needed)
-  redis:
-    image: redis:7.2-alpine
-    container_name: ollama-redis
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-    volumes:
-      - redis_data:/data
-      - ./configs/redis.conf:/usr/local/etc/redis/redis.conf:ro
-    command: redis-server /usr/local/etc/redis/redis.conf
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: "1"
-          memory: 2G
-        reservations:
-          cpus: "0.5"
-          memory: 512M
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 3
-    networks:
-      - ollama-net
-    profiles:
-      - with-redis
+  # redis:
+  #   image: redis:7.2-alpine
+  #   container_name: ollama-redis
+  #   ports:
+  #     - "${REDIS_PORT:-6379}:6379"
+  #   volumes:
+  #     - redis_data:/data
+  #     - ./configs/redis.conf:/usr/local/etc/redis/redis.conf:ro
+  #   command: redis-server /usr/local/etc/redis/redis.conf
+  #   restart: unless-stopped
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: "1"
+  #         memory: 2G
+  #       reservations:
+  #         cpus: "0.5"
+  #         memory: 512M
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 10s
+  #     timeout: 3s
+  #     retries: 3
+  #   networks:
+  #     - ollama-net
+  #   profiles:
+  #     - with-redis
 
 volumes:
   ollama_data:

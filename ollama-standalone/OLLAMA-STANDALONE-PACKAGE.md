@@ -215,7 +215,6 @@ make shell              # Access container shell
 
 ### Large (> 8GB)
 - `qwen2.5-coder:14b-instruct-q8_0` - Code generation (14GB)
-- `llama3.1:70b` - Best quality (requires 48GB+ RAM)
 
 ## 🔒 Security Notes
 
