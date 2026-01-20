@@ -44,19 +44,22 @@ class RunCmdTool(Tool):
         action = CommandPolicy.classify_command(cmd)
         
         if action == CommandAction.REQUIRE_APPROVAL:
-            # Check approval store
+            # Check approval store and request approval if needed
             approval_store = get_approval_store()
             cmd_id = f"cmd_{hashlib.sha256(cmd.encode()).hexdigest()[:10]}"
             
-            if not approval_store.is_command_approved(cmd_id):
-                return {
-                    "error": "APPROVAL_REQUIRED",
-                    "cmd": cmd,
-                    "cmd_id": cmd_id,
-                    "message": "This command requires user approval before execution.",
-                    "blocked.approval_required": True,
-                    "approval.kind": "command"
-                }
+            if not approval_store.is_approved(cmd_id):
+                # Request approval from user (blocks until user responds)
+                approval = approval_store.request_approval(cmd_id, cmd=cmd)
+                
+                if not approval.approved:
+                    return {
+                        "error": "APPROVAL_DENIED",
+                        "cmd": cmd,
+                        "cmd_id": cmd_id,
+                        "message": "Command was not approved by user.",
+                        "feedback": approval.feedback,
+                    }
         
         # Execute command
         root = RepoInfoTool().forward()["root"]

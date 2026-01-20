@@ -32,68 +32,68 @@ def get_env_float(key: str, default: float) -> float:
 
 class Config:
     """Central configuration for smol_instruments."""
-    
+
     # LLM Model Settings
-    MODEL_ID: str = os.getenv("MODEL_ID", "ollama_chat/qwen2.5-coder:14b")
+    MODEL_ID: str = os.getenv("MODEL_ID", "ollama_chat/qwen2.5-coder:14b-instruct")
     MODEL_API_BASE: str = os.getenv("MODEL_API_BASE", "http://localhost:11434")
     MODEL_TEMPERATURE: float = get_env_float("MODEL_TEMPERATURE", 0.1)
     MODEL_MAX_TOKENS: int = get_env_int("MODEL_MAX_TOKENS", 1024)
-    
+
     # Agent Settings
     AGENT_MAX_STEPS: int = get_env_int("AGENT_MAX_STEPS", 25)
-    
+
     # Phoenix Telemetry
     PHOENIX_ENABLED: bool = get_env_bool("PHOENIX_ENABLED", True)
     PHOENIX_ENDPOINT: str = os.getenv("PHOENIX_ENDPOINT", "http://localhost:6006/v1/traces")
-    
+
     # Validation Settings
     VALIDATION_MAX_CHARS: int = get_env_int("VALIDATION_MAX_CHARS", 5000)
     VALIDATION_MAX_LINES: int = get_env_int("VALIDATION_MAX_LINES", 200)
     VALIDATION_MAX_LINE_RANGE: int = get_env_int("VALIDATION_MAX_LINE_RANGE", 1000)
-    
+
     # Truncation Settings
     TRUNCATION_MAX_CHARS: int = get_env_int("TRUNCATION_MAX_CHARS", 3000)
     TRUNCATION_MAX_LINES: int = get_env_int("TRUNCATION_MAX_LINES", 150)
     TRUNCATION_MAX_LIST_ITEMS: int = get_env_int("TRUNCATION_MAX_LIST_ITEMS", 100)
-    
+
     # Sandbox Settings
     SANDBOX_IMAGE: str = os.getenv("SANDBOX_IMAGE", "smolagent-sandbox:latest")
     SANDBOX_TIMEOUT: int = get_env_int("SANDBOX_TIMEOUT", 300)
-    
+
     # Logging
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     SUPPRESS_WARNINGS: bool = get_env_bool("SUPPRESS_WARNINGS", True)
-    
+
     @classmethod
     def load_from_env_file(cls, env_file: str = ".env"):
         """
         Load configuration from .env file.
-        
+
         Args:
             env_file: Path to .env file
         """
         if not os.path.exists(env_file):
             return
-        
+
         with open(env_file, 'r') as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith('#'):
                     continue
-                
+
                 if '=' in line:
                     key, value = line.split('=', 1)
                     key = key.strip()
                     value = value.strip()
-                    
+
                     # Remove quotes if present
                     if value.startswith('"') and value.endswith('"'):
                         value = value[1:-1]
                     elif value.startswith("'") and value.endswith("'"):
                         value = value[1:-1]
-                    
+
                     os.environ[key] = value
-        
+
         # Reload class attributes after env vars are set
         cls.MODEL_ID = os.getenv("MODEL_ID", "ollama_chat/qwen2.5-coder:14b")
         cls.MODEL_API_BASE = os.getenv("MODEL_API_BASE", "http://localhost:11434")
@@ -112,7 +112,7 @@ class Config:
         cls.SANDBOX_TIMEOUT = get_env_int("SANDBOX_TIMEOUT", 300)
         cls.LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
         cls.SUPPRESS_WARNINGS = get_env_bool("SUPPRESS_WARNINGS", True)
-    
+
     @classmethod
     def display(cls):
         """Display current configuration."""

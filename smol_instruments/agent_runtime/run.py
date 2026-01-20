@@ -11,6 +11,9 @@ Integrates all components:
 
 import logging
 import warnings
+import time
+import hashlib
+import functools
 from typing import Optional
 
 from smolagents import ToolCallingAgent, LiteLLMModel, PromptTemplates
@@ -19,13 +22,14 @@ from smolagents import ToolCallingAgent, LiteLLMModel, PromptTemplates
 warnings.filterwarnings('ignore', category=UserWarning, module='pydantic')
 
 from agent_runtime.config import Config
-from agent_runtime.prompt import get_system_prompt
 from agent_runtime.state import AgentState
 from agent_runtime.approval import ApprovalStore, set_approval_store
 from agent_runtime.instrumentation import (
     wrap_tools_with_instrumentation,
     setup_phoenix_telemetry
 )
+from .orchestrator import gate_aware_step_callback
+from .tool_registry import get_tool_list_string
 
 # Import raw tools
 from agent_runtime.tools.repo import RepoInfoTool, ListFilesTool
@@ -49,7 +53,8 @@ def build_agent(
     api_base: Optional[str] = None,
     max_steps: Optional[int] = None,
     enable_phoenix: Optional[bool] = None,
-    approval_callback: Optional[callable] = None
+    approval_callback: Optional[callable] = None,
+    enable_gates: bool = True
 ) -> tuple:
     """
     Build agent with instrumented tools.
@@ -126,6 +131,96 @@ def build_agent(
         add_base_tools=False,
         max_steps=max_steps,
     )
+    
+    # Add LLM call tracing
+    from opentelemetry import trace
+    original_run = agent.run
+    
+    # Debug: Check if tracing is properly set up
+    current_tracer = trace.get_tracer_provider()
+    if current_tracer is None or not hasattr(current_tracer, '_span_processors'):
+        print("⚠️  Warning: OpenTelemetry tracer provider not properly configured")
+        print("   Phoenix traces may not be exported")
+    
+    @functools.wraps(original_run)
+    def traced_run(task):
+        """Wrap agent.run to trace LLM calls."""
+        tracer = trace.get_tracer(__name__)
+        
+        with tracer.start_as_current_span("llm_agent_run") as span:
+            span.set_attribute("agent.task", task)
+            span.set_attribute("agent.max_steps", max_steps)
+            span.set_attribute("agent.tools_count", len(instrumented_tools))
+            
+            # Track LLM calls by wrapping the model
+            if hasattr(model, '_make_call'):
+                original_make_call = model._make_call
+                
+                @functools.wraps(original_make_call)
+                def traced_make_call(*args, **kwargs):
+                    with tracer.start_as_current_span("llm_call") as llm_span:
+                        llm_span.set_attribute("llm.model", getattr(model, "model_id", "unknown"))
+                        
+                        # Capture prompt if available
+                        if len(args) > 0:
+                            prompt = args[0] if isinstance(args[0], str) else str(args[0])
+                            llm_span.set_attribute("llm.prompt.length", len(prompt))
+                            llm_span.set_attribute("llm.prompt.hash", hashlib.sha256(prompt.encode()).hexdigest()[:8])
+                        
+                        # Make the actual LLM call
+                        start_time = time.time()
+                        try:
+                            result = original_make_call(*args, **kwargs)
+                            duration_ms = (time.time() - start_time) * 1000
+                            llm_span.set_attribute("llm.duration_ms", duration_ms)
+                            
+                            # Capture response
+                            if isinstance(result, dict) and "choices" in result:
+                                completion = result["choices"][0]["message"]["content"] if "message" in result["choices"][0] else ""
+                                llm_span.set_attribute("llm.completion.length", len(completion))
+                                llm_span.set_attribute("llm.completion.hash", hashlib.sha256(completion.encode()).hexdigest()[:8])
+                                llm_span.set_attribute("llm.completion.preview", completion[:200] if completion else "")
+                                
+                                # Add full completion to span events for detailed analysis
+                                if completion:
+                                    llm_span.add_event("llm_completion", {
+                                        "content": completion,
+                                        "token_count": len(completion.split())
+                                    })
+                            
+                            return result
+                        except Exception as e:
+                            llm_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
+                            llm_span.set_attribute("llm.error", str(e))
+                            raise
+                
+                model._make_call = traced_make_call
+            
+            # Call the original run method
+            return original_run(task)
+    
+    agent.run = traced_run
+    
+    # Attach state and initialize gate tracking
+    agent._smol_state = state
+    
+    if enable_gates:
+        # Initialize gate tracker immediately
+        from .orchestrator import GateTracker
+        agent._gate_tracker = GateTracker(state)
+        
+        # Create a callback wrapper that smolagents expects
+        class CallbackWrapper:
+            def __init__(self, callback_func):
+                self.callback_func = callback_func
+            
+            def callback(self, step, agent):
+                return self.callback_func(step, agent)
+        
+        # Set up step callbacks properly
+        agent.step_callbacks = CallbackWrapper(gate_aware_step_callback)
+        
+        print("✓ Gate enforcement enabled (Path A - memory injection)")
     
     print(f"✓ Agent built with {len(instrumented_tools)} instrumented tools")
     print(f"✓ Model: {model_id}")

@@ -1,1 +1,2 @@
-"""Tests for smol_instruments agent."""
+# Tests package
+# This makes the tests directory a proper Python package

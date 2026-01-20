@@ -1,11 +1,11 @@
 """
 ApprovalStore - tracks which patches/commands have been approved.
 
-FIXED: Added command approval support.
+Unified approval system for both patches and commands.
 """
 
 from dataclasses import dataclass
-from typing import Dict, Optional, Callable, Set
+from typing import Dict, Optional, Callable
 from opentelemetry import trace
 
 
@@ -13,87 +13,118 @@ tracer = trace.get_tracer(__name__)
 
 
 @dataclass
-class PatchProposal:
-    """Artifact representing a proposed code change."""
-    patch_id: str
-    base_ref: str  # File path
-    diff: str
+class ApprovalRequest:
+    """Unified approval request for patches or commands."""
+    request_id: str
+    kind: str  # "patch" or "command"
     summary: str
+    details: str  # diff for patches, full command for commands
+    source_file: Optional[str] = None  # For patches
 
 
 @dataclass
 class Approval:
-    """User's decision on a proposal."""
+    """User's decision on a request."""
     approved: bool
     feedback: Optional[str] = None
 
 
+# Legacy alias for backward compatibility
+PatchProposal = ApprovalRequest
+
+
 class ApprovalStore:
     """
-    Central store for tracking approvals.
-    
-    FIXED: Added command approval tracking.
+    Central store for tracking approvals (patches and commands).
     """
     
-    def __init__(self, approval_callback: Optional[Callable] = None):
+    def __init__(self, approval_callback: Optional[Callable[[ApprovalRequest], Approval]] = None):
         """
         Args:
-            approval_callback: Function(PatchProposal) -> Approval
+            approval_callback: Function(ApprovalRequest) -> Approval
         """
-        self.proposals: Dict[str, PatchProposal] = {}
+        self.requests: Dict[str, ApprovalRequest] = {}
         self.approvals: Dict[str, Approval] = {}
-        self.approved_commands: Set[str] = set()  # FIXED: Track approved commands
         self.approval_callback = approval_callback or self._console_approval
     
-    def add_proposal(self, proposal: PatchProposal):
-        """Store a new proposal."""
-        self.proposals[proposal.patch_id] = proposal
+    # Legacy property for backward compatibility
+    @property
+    def proposals(self) -> Dict[str, ApprovalRequest]:
+        return self.requests
     
-    def is_approved(self, patch_id: str) -> bool:
-        """Check if a patch has been approved."""
-        approval = self.approvals.get(patch_id)
+    @property
+    def approved_commands(self):
+        """Legacy: return set of approved command IDs."""
+        return {k for k, v in self.approvals.items() if k.startswith("cmd_") and v.approved}
+    
+    def add_proposal(self, proposal: ApprovalRequest):
+        """Store a new approval request (legacy name for patches)."""
+        self.requests[proposal.request_id] = proposal
+    
+    def add_request(self, request: ApprovalRequest):
+        """Store a new approval request."""
+        self.requests[request.request_id] = request
+    
+    def is_approved(self, request_id: str) -> bool:
+        """Check if a request has been approved."""
+        approval = self.approvals.get(request_id)
         return approval is not None and approval.approved
     
-    def get_approval_feedback(self, patch_id: str) -> Optional[str]:
+    # Legacy alias
+    def is_command_approved(self, cmd_id: str) -> bool:
+        return self.is_approved(cmd_id)
+    
+    # Legacy alias
+    def approve_command(self, cmd_id: str):
+        self.approvals[cmd_id] = Approval(approved=True)
+    
+    def get_approval_feedback(self, request_id: str) -> Optional[str]:
         """Get rejection feedback if available."""
-        approval = self.approvals.get(patch_id)
+        approval = self.approvals.get(request_id)
         if approval and not approval.approved:
             return approval.feedback
         return None
     
-    def is_command_approved(self, cmd_id: str) -> bool:
-        """FIXED: Check if a command has been approved."""
-        return cmd_id in self.approved_commands
-    
-    def approve_command(self, cmd_id: str):
-        """FIXED: Mark a command as approved."""
-        self.approved_commands.add(cmd_id)
-    
-    def request_approval(self, patch_id: str) -> Approval:
+    def request_approval(self, request_id: str, cmd: Optional[str] = None) -> Approval:
         """
-        Request user approval for a patch.
+        Request user approval.
         
+        Args:
+            request_id: ID of the request (patch_id or cmd_id)
+            cmd: For commands not pre-registered, the command string
+            
         Creates Phoenix span: approval.wait
         
         Returns:
             Approval decision
         """
-        proposal = self.proposals.get(patch_id)
-        if not proposal:
-            return Approval(approved=False, feedback=f"Patch {patch_id} not found")
+        request = self.requests.get(request_id)
+        
+        # Auto-create request for commands passed directly
+        if not request and cmd is not None:
+            request = ApprovalRequest(
+                request_id=request_id,
+                kind="command",
+                summary=f"Execute command",
+                details=cmd,
+            )
+            self.requests[request_id] = request
+        
+        if not request:
+            return Approval(approved=False, feedback=f"Request {request_id} not found")
         
         # Create Phoenix span for approval wait
         with tracer.start_as_current_span("approval.wait") as span:
-            span.set_attribute("approval.kind", "patch")
-            span.set_attribute("approval.patch_id", patch_id)
-            span.set_attribute("approval.file", proposal.base_ref)
-            span.set_attribute("approval.requested_by", "propose_patch_unified")  # FIXED: Track source
+            span.set_attribute("approval.kind", request.kind)
+            span.set_attribute("approval.request_id", request_id)
+            if request.source_file:
+                span.set_attribute("approval.file", request.source_file)
             
             # Request approval from user
-            approval = self.approval_callback(proposal)
+            approval = self.approval_callback(request)
             
             # Record decision
-            self.approvals[patch_id] = approval
+            self.approvals[request_id] = approval
             
             span.set_attribute("approval.granted", approval.approved)
             if approval.feedback:
@@ -101,16 +132,20 @@ class ApprovalStore:
         
         return approval
     
-    def _console_approval(self, proposal: PatchProposal) -> Approval:
-        """Default console-based approval."""
+    def _console_approval(self, request: ApprovalRequest) -> Approval:
+        """Default console-based approval for any request type."""
         print("\n" + "=" * 70)
-        print("🔧 PATCH APPROVAL REQUEST")
+        if request.kind == "command":
+            print("⚠️  COMMAND APPROVAL REQUEST")
+        else:
+            print("🔧 PATCH APPROVAL REQUEST")
         print("=" * 70)
-        print(f"Patch ID: {proposal.patch_id}")
-        print(f"File: {proposal.base_ref}")
-        print(f"Summary: {proposal.summary}")
-        print("\nDiff:")
-        print(proposal.diff)
+        print(f"ID: {request.request_id}")
+        print(f"Summary: {request.summary}")
+        if request.source_file:
+            print(f"File: {request.source_file}")
+        print(f"\n{request.kind.title()}:")
+        print(request.details)
         print("=" * 70)
         
         while True:
@@ -119,7 +154,7 @@ class ApprovalStore:
                 return Approval(approved=True)
             elif choice == 'n':
                 return Approval(approved=False)
-            else:
+            elif choice:
                 return Approval(approved=False, feedback=choice)
 
 

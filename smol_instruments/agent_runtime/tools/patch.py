@@ -10,7 +10,7 @@ import subprocess
 from pathlib import Path
 from smolagents import Tool
 from agent_runtime.tools.repo import RepoInfoTool
-from agent_runtime.approval import PatchProposal, get_approval_store
+from agent_runtime.approval import ApprovalRequest, get_approval_store
 from agent_runtime.sandbox import SimpleSandbox
 
 
@@ -59,11 +59,12 @@ class ProposePatchUnifiedTool(Tool):
             }
         
         # Create proposal
-        proposal = PatchProposal(
-            patch_id=patch_id,
-            base_ref=file_path,
-            diff=unified_diff,
-            summary=intent
+        proposal = ApprovalRequest(
+            request_id=patch_id,
+            kind="patch",
+            summary=intent,
+            details=unified_diff,
+            source_file=file_path,
         )
         
         # Store and request approval
@@ -122,11 +123,12 @@ class ProposePatchTool(Tool):
         diff_text = ''.join(diff)
         
         # Create proposal
-        proposal = PatchProposal(
-            patch_id=patch_id,
-            base_ref=file_path,
-            diff=diff_text,
-            summary=intent
+        proposal = ApprovalRequest(
+            request_id=patch_id,
+            kind="patch",
+            summary=intent,
+            details=diff_text,
+            source_file=file_path,
         )
         
         # Store in approval store
@@ -170,8 +172,8 @@ class ShowPatchTool(Tool):
         return {
             "patch_id": patch_id,
             "intent": proposal.summary,
-            "file_path": proposal.base_ref,
-            "diff": proposal.diff,
+            "file_path": proposal.source_file,
+            "diff": proposal.details,
             "approved": is_approved,
             "feedback": feedback
         }
@@ -222,7 +224,7 @@ class ApplyPatchTool(Tool):
         
         # Validate in sandbox (creates Phoenix span if enabled)
         with SimpleSandbox(repo_root=root, enable_phoenix=True) as sandbox:
-            valid, message = sandbox.validate_patch(proposal.diff)
+            valid, message = sandbox.validate_patch(proposal.details)
             
             if not valid:
                 return {
@@ -234,7 +236,7 @@ class ApplyPatchTool(Tool):
         
         # Apply to actual repository
         tmp = Path(root) / f".{patch_id}.diff"
-        tmp.write_text(proposal.diff)
+        tmp.write_text(proposal.details)
         
         try:
             
@@ -263,9 +265,9 @@ class ApplyPatchTool(Tool):
                 "ok": True,
                 "patch_id": patch_id,
                 "intent": proposal.summary,
-                "file_path": proposal.base_ref,
-                "files_changed": [proposal.base_ref],
-                "message": f"Patch {patch_id} applied successfully to {proposal.base_ref}"
+                "file_path": proposal.source_file,
+                "files_changed": [proposal.source_file],
+                "message": f"Patch {patch_id} applied successfully to {proposal.source_file}"
             }
         
         finally:

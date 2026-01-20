@@ -80,10 +80,31 @@ def _instrument_tool(tool: Tool, state: AgentState, validation_config: Dict):
         with tracer.start_as_current_span(f"tool_wrapped.{tool.name}") as span:
             start_time = time.time()
             
-            # Set span attributes
+            # Set comprehensive span attributes
             span.set_attribute("tool.name", tool.name)
             span.set_attribute("tool.args.hash", args_hash)
             span.set_attribute("tool.args.size", len(json.dumps(call_kwargs, default=str)))
+            span.set_attribute("tool.args.details", json.dumps(call_kwargs, default=str))
+            
+            # Add tool-specific attributes for better filtering
+            if tool.name in ["read_file", "read_file_snippet"]:
+                span.set_attribute("tool.type", "file_read")
+                if "path" in call_kwargs:
+                    span.set_attribute("file.path", call_kwargs["path"])
+            
+            elif tool.name in ["rg_search"]:
+                span.set_attribute("tool.type", "search")
+                if "pattern" in call_kwargs:
+                    span.set_attribute("search.pattern", call_kwargs["pattern"])
+            
+            elif tool.name in ["propose_patch_unified", "propose_patch"]:
+                span.set_attribute("tool.type", "patch")
+            
+            elif tool.name in ["run_tests", "run_cmd"]:
+                span.set_attribute("tool.type", "execution")
+            
+            else:
+                span.set_attribute("tool.type", "other")
             
             # 1. Validate inputs
             validation_error = _validate_inputs(tool.name, call_kwargs)
@@ -156,6 +177,30 @@ def _instrument_tool(tool: Tool, state: AgentState, validation_config: Dict):
             
             # 6. Record to state
             state.add_step(tool.name, call_kwargs, result)
+            
+            # Add output details to span for traceability
+            if isinstance(result, dict):
+                if "lines" in result:
+                    span.set_attribute("output.lines", len(result["lines"]))
+                    span.set_attribute("output.first_line", result["lines"][0] if result["lines"] else "")
+                    # Add lines as span events for full visibility
+                    for i, line in enumerate(result["lines"][:5]):  # First 5 lines
+                        span.add_event(f"output.line_{i}", {"content": line})
+                elif "text" in result:
+                    span.set_attribute("output.text.length", len(result["text"]))
+                    span.set_attribute("output.text.preview", result["text"][:200] if result["text"] else "")
+                    # Add full text as span event
+                    span.add_event("output.full_text", {"content": result["text"]})
+                elif "stdout_tail" in result:
+                    span.set_attribute("output.stdout.preview", result["stdout_tail"][:200] if result["stdout_tail"] else "")
+                    span.add_event("output.stdout", {"content": result["stdout_tail"]})
+                elif "diff" in result:
+                    span.set_attribute("output.diff.preview", result["diff"][:200] if result["diff"] else "")
+                    span.add_event("output.diff", {"content": result["diff"]})
+                elif "error" in result:
+                    span.set_attribute("output.error", result["error"])
+                    span.set_attribute("output.error_message", result.get("message", ""))
+                    span.add_event("output.error_details", {"error": result["error"], "message": result.get("message", "")})
             
             return result
     

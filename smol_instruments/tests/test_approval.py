@@ -3,7 +3,7 @@
 import pytest
 from agent_runtime.approval import (
     ApprovalStore,
-    PatchProposal,
+    ApprovalRequest,
     Approval,
     set_approval_store,
     get_approval_store
@@ -25,11 +25,12 @@ class TestApprovalStore:
         """Adding proposals should store them."""
         store = ApprovalStore()
         
-        proposal = PatchProposal(
-            patch_id="patch_123",
-            base_ref="foo.py",
-            diff="diff content",
-            summary="Fix bug"
+        proposal = ApprovalRequest(
+            request_id="patch_123",
+            kind="patch",
+            summary="Fix bug",
+            details="diff content",
+            source_file="foo.py",
         )
         
         store.add_proposal(proposal)
@@ -99,11 +100,17 @@ class TestApprovalStore:
     
     def test_custom_approval_callback(self):
         """Custom approval callback should be used."""
-        auto_approve = lambda proposal: Approval(approved=True)
+        auto_approve = lambda request: Approval(approved=True)
         
         store = ApprovalStore(approval_callback=auto_approve)
         
-        proposal = PatchProposal("patch_123", "foo.py", "diff", "Fix")
+        proposal = ApprovalRequest(
+            request_id="patch_123",
+            kind="patch",
+            summary="Fix",
+            details="diff",
+            source_file="foo.py",
+        )
         store.add_proposal(proposal)
         
         approval = store.request_approval("patch_123")
