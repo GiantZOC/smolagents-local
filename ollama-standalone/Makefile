@@ -4,8 +4,7 @@
 .PHONY: help setup start stop restart logs health install-models list-models clean clean-all shell build
 
 # Default models to install
-# qwen2.5-coder:14b-instruct-q8_0
-DEFAULT_MODELS := llama3.2:3b nomic-embed-text:latest
+DEFAULT_MODELS := qwen2.5-coder:14b-instruct nomic-embed-text:latest
 
 # Colors for output
 GREEN := \033[0;32m
@@ -28,30 +27,33 @@ help:
 	@echo "============================================"
 	@echo ""
 	@echo "🚀 Quick Start:"
-	@echo "  make setup           - Complete setup (build, start, install models)"
-	@echo "  make health          - Check Ollama health"
-	@echo "  make logs            - View logs"
+	@echo "  make setup              - Complete setup (build, start, install models)"
+	@echo "  make create-16k-variant - Create 16k context variant (recommended!)"
+	@echo "  make health             - Check Ollama health"
+	@echo "  make logs               - View logs"
 	@echo ""
 	@echo "🐳 Service Management:"
-	@echo "  make build           - Build Ollama container"
-	@echo "  make start           - Start Ollama"
-	@echo "  make stop            - Stop Ollama"
-	@echo "  make restart         - Restart Ollama"
-	@echo "  make status          - Show container status"
+	@echo "  make build              - Build Ollama container"
+	@echo "  make start              - Start Ollama"
+	@echo "  make stop               - Stop Ollama"
+	@echo "  make restart            - Restart Ollama"
+	@echo "  make status             - Show container status"
 	@echo ""
 	@echo "📦 Model Management:"
-	@echo "  make install-models  - Install default models"
-	@echo "  make list-models     - List installed models"
-	@echo "  make pull MODEL=name - Pull specific model"
+	@echo "  make install-models     - Install default models (qwen2.5-coder:14b-instruct)"
+	@echo "  make create-16k-variant - Create 16k context variant (recommended)"
+	@echo "  make create-32k-variant - Create 32k context variant (alternative)"
+	@echo "  make list-models        - List installed models"
+	@echo "  make pull MODEL=name    - Pull specific model"
 	@echo ""
 	@echo "🔧 Utilities:"
-	@echo "  make shell           - Access Ollama container shell"
-	@echo "  make logs            - View container logs"
-	@echo "  make health          - Check health status"
+	@echo "  make shell              - Access Ollama container shell"
+	@echo "  make logs               - View container logs"
+	@echo "  make health             - Check health status"
 	@echo ""
 	@echo "🧹 Cleanup:"
-	@echo "  make clean           - Remove containers"
-	@echo "  make clean-all       - Remove containers and volumes"
+	@echo "  make clean              - Remove containers"
+	@echo "  make clean-all          - Remove containers and volumes"
 	@echo ""
 	@echo "🌐 Access:"
 	@echo "  API: http://localhost:11434"
@@ -60,6 +62,11 @@ help:
 ## Complete setup
 setup: build start wait-healthy install-models
 	$(call print_status,"✅ Setup complete! Ollama is ready.")
+	@echo ""
+	@echo "📌 Default model installed: qwen2.5-coder:14b-instruct"
+	@echo ""
+	@echo "🔥 RECOMMENDED: Create 16k context variant for better performance:"
+	@echo "   make create-16k-variant"
 	@echo ""
 	@echo "Access Ollama at: http://localhost:11434"
 	@echo "Run 'make list-models' to see installed models"
@@ -139,6 +146,28 @@ install-models: wait-healthy
 	done
 	$(call print_status,"Model installation complete!")
 
+## Create 16k context variant (recommended)
+create-16k-variant: wait-healthy
+	$(call print_status,"Creating qwen2.5-coder:14b-instruct-16k variant...")
+	@echo "📋 Copying Modelfile into container..."
+	@docker cp Modelfile.16k ollama:/tmp/Modelfile.16k
+	@echo "🔨 Building 16k context model..."
+	@docker exec ollama ollama create qwen2.5-coder:14b-instruct-16k -f /tmp/Modelfile.16k
+	@docker exec ollama rm /tmp/Modelfile.16k 2>/dev/null || true
+	$(call print_status,"✅ Created qwen2.5-coder:14b-instruct-16k with 16384 context window!")
+
+## Create 32k context variant (alternative)
+create-32k-variant: wait-healthy
+	$(call print_status,"Creating qwen2.5-coder:14b-instruct-32k variant...")
+	@echo "FROM qwen2.5-coder:14b-instruct" > /tmp/Modelfile.32k
+	@echo "PARAMETER num_ctx 32768" >> /tmp/Modelfile.32k
+	@docker cp /tmp/Modelfile.32k ollama:/tmp/Modelfile.32k
+	@echo "🔨 Building 32k context model..."
+	@docker exec ollama ollama create qwen2.5-coder:14b-instruct-32k -f /tmp/Modelfile.32k
+	@docker exec ollama rm /tmp/Modelfile.32k 2>/dev/null || true
+	@rm /tmp/Modelfile.32k
+	$(call print_status,"✅ Created qwen2.5-coder:14b-instruct-32k with 32768 context window!")
+
 ## List installed models
 list-models:
 	$(call print_status,"Installed models:")
@@ -178,7 +207,7 @@ test:
 	@curl -s http://localhost:11434/api/tags | grep -o '"name":"[^"]*"' | cut -d'"' -f4 || echo "No models found"
 	@echo ""
 	@echo "Testing generation (if models are installed)..."
-	@curl -s http://localhost:11434/api/generate -d '{"model":"llama3.2:3b","prompt":"Say hello","stream":false}' | head -20 || echo "Generation test failed"
+	@curl -s http://localhost:11434/api/generate -d '{"model":"qwen2.5-coder:14b-instruct","prompt":"Write a hello function in Python","stream":false}' | head -20 || echo "Generation test failed"
 
 ## Clean containers
 clean:

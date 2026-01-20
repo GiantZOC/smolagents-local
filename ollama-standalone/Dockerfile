@@ -19,7 +19,7 @@ RUN apt-get update --allow-unauthenticated && \
 #
 # RUN /bin/ollama serve & \
 #     sleep 5 && \
-#     /bin/ollama pull llama3.2:3b && \
+#     /bin/ollama pull qwen2.5-coder:14b-instruct && \
 #     /bin/ollama pull nomic-embed-text:latest && \
 #     pkill ollama
 

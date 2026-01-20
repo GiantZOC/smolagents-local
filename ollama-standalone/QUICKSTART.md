@@ -29,17 +29,34 @@ The `make setup` command did:
 1. ✅ Built custom Ollama container with health checks
 2. ✅ Started Ollama service
 3. ✅ Waited for healthy status
-4. ✅ Installed default models (llama3.2:3b, nomic-embed-text)
+4. ✅ Installed default models (qwen2.5-coder:14b-instruct, nomic-embed-text)
+
+## 🔥 Recommended: Create 16k Context Variant
+
+For better performance with longer code contexts:
+
+```bash
+make create-16k-variant
+```
+
+This creates `qwen2.5-coder:14b-instruct-16k` with 16,384 token context window (vs default 8,192)
 
 ## 🧪 Try It Out
 
 ### Using curl
 
 ```bash
-# Simple question
+# Simple code generation
 curl http://localhost:11434/api/generate -d '{
-  "model": "llama3.2:3b",
-  "prompt": "Why is the sky blue?",
+  "model": "qwen2.5-coder:14b-instruct",
+  "prompt": "Write a Python function to calculate fibonacci",
+  "stream": false
+}'
+
+# Use 16k variant for longer contexts
+curl http://localhost:11434/api/generate -d '{
+  "model": "qwen2.5-coder:14b-instruct-16k",
+  "prompt": "Refactor this code...",
   "stream": false
 }'
 ```
@@ -52,8 +69,8 @@ import requests
 response = requests.post(
     "http://localhost:11434/api/generate",
     json={
-        "model": "llama3.2:3b",
-        "prompt": "Explain Docker in one sentence",
+        "model": "qwen2.5-coder:14b-instruct",
+        "prompt": "Write a FastAPI endpoint for user authentication",
         "stream": False
     }
 )
@@ -67,8 +84,8 @@ print(response.json()["response"])
 const axios = require('axios');
 
 axios.post('http://localhost:11434/api/generate', {
-  model: 'llama3.2:3b',
-  prompt: 'What is AI?',
+  model: 'qwen2.5-coder:14b-instruct',
+  prompt: 'Create a React component for a login form',
   stream: false
 }).then(res => console.log(res.data.response));
 ```
@@ -122,17 +139,23 @@ OLLAMA_MEMORY_LIMIT=16G          # Max memory usage
 ### Install More Models
 
 ```bash
-# Small & fast (2GB)
-make pull MODEL=llama3.2:3b
+# Default coding model (8.5GB) - already installed
+# qwen2.5-coder:14b-instruct
 
-# Better quality (4GB)
-make pull MODEL=mistral:7b
+# Create extended context variants
+make create-16k-variant  # 16k context (recommended)
+make create-32k-variant  # 32k context (for very long files)
 
-# Code generation (4GB)
-make pull MODEL=codellama:7b
+# Alternative coding models
+make pull MODEL=qwen2.5-coder:7b-instruct    # Smaller, faster (4.7GB)
+make pull MODEL=codellama:13b                # Alternative (7GB)
 
-# Embeddings (274MB)
-make pull MODEL=nomic-embed-text
+# Embeddings (274MB) - already installed
+# nomic-embed-text:latest
+
+# Small general purpose models
+make pull MODEL=llama3.2:3b    # Small & fast (2GB)
+make pull MODEL=mistral:7b     # Better quality (4GB)
 ```
 
 ### Integrate with Your App
@@ -208,11 +231,12 @@ make clean-all
 
 ## 💡 Pro Tips
 
-1. **Keep models loaded**: Set `OLLAMA_KEEP_ALIVE=24h` for faster responses
-2. **Use smaller models**: llama3.2:3b is 4x faster than 8b models
-3. **Enable streaming**: Better user experience for long responses
-4. **Monitor resources**: Use `make disk-usage` to check space
-5. **Backup models**: Use `make backup` before major changes
+1. **Use 16k variant**: Run `make create-16k-variant` for better code understanding
+2. **Keep models loaded**: Set `OLLAMA_KEEP_ALIVE=24h` for faster responses
+3. **Smaller for speed**: qwen2.5-coder:7b-instruct is faster but less capable
+4. **Enable streaming**: Better user experience for long responses
+5. **Monitor resources**: Use `make disk-usage` to check space
+6. **Backup models**: Use `make backup` before major changes
 
 ## 🎉 You're Ready!
 
